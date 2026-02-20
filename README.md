@@ -7,7 +7,9 @@ and Redis for state + ordered event streams. Prepared Feb 18, 2026.
 - Single friends-room (one table) for MVP.
 - Server is the single source of truth; clients animate ordered events.
 - Reconnect supported via snapshots + event replay.
+- Auto-start when all active players are ready (room stays single-table).
 - Per-round vote to continue/end session (no vote = NO, tie continues).
+- Game Theory advisor endpoint for EV/utility/security analysis.
 
 ## Stack
 - Backend: FastAPI (WebSocket)
@@ -43,10 +45,11 @@ npm run dev
 
 Endpoints:
 - HTTP health: `http://localhost:8000/health`
+- HTTP strategy: `http://localhost:8000/strategy/blackjack` (POST)
 - WebSocket: `ws://localhost:8000/ws/blackjack`
 
 ## Game Flow
-Session: `LOBBY -> ROUNDS -> VOTE_ENDS -> SESSION_ENDED -> Nickname`
+Session: `LOBBY -> WAITING_FOR_BETS -> DEAL/PLAY -> VOTE_CONTINUE -> (next round | SESSION_ENDED)`
 
 Round phases:
 - `WAITING_FOR_BETS`
@@ -62,11 +65,11 @@ Client -> Server:
 - `HELLO {nickname, reconnect_token?}`
 - `JOIN_TABLE {table_id}`
 - `READY_TOGGLE {}`
-- `START_SESSION {}`
 - `PLACE_BET {amount, request_id}`
-- `ACTION {action: hit|stand, request_id}`
+- `ACTION {action: hit|stand|next|double, request_id}`
 - `VOTE_CONTINUE {vote: yes|no, request_id}`
 - `SYNC {last_event_id}`
+- `ADMIN_CONFIG {starting_bankroll?, min_bet?, max_bet?, shoe_decks?, reshuffle_when_remaining_pct?}`
 
 Server -> Client:
 - `WELCOME {player_id, reconnect_token}`
@@ -74,9 +77,9 @@ Server -> Client:
 - `EVENT {event_id, type, session_id, round_id, payload}`
 - `ERROR {code, message}`
 
-Core event types:
+Selected event types:
 `PLAYER_JOINED, PLAYER_LEFT, READY_CHANGED, SESSION_STARTED, PHASE_CHANGED, BET_PLACED,
-ROUND_STARTED, CARD_DEALT, TURN_STARTED, PLAYER_ACTION, DEALER_REVEAL_HOLE, DEALER_ACTION,
+ROUND_STARTED, CARD_DEALT, TURN_STARTED, PLAYER_ACTION, DEALER_ACTION, ANNOUNCEMENT,
 PAYOUT, VOTE_STARTED, VOTE_CAST, VOTE_RESULT, SESSION_ENDED`
 
 ## Redis Data Model (Authoritative)
@@ -101,9 +104,9 @@ Keys:
 - `starting_bankroll = 1000`
 - `min_bet = 10`
 - `max_bet = 200`
-- `bet_time_seconds = 15`
+- `bet_time_seconds = 0`
 - `vote_time_seconds = 15`
-- `reconnect_grace_seconds = 60`
+- `reconnect_grace_seconds = 300`
 - `min_players_to_start = 2`
 - `require_ready = true`
 - `allow_join_during_session = false`
@@ -116,17 +119,19 @@ Keys:
 ## Planned Project Structure
 Backend:
 - `backend/app/api/ws/blackjack.py`
+- `backend/app/api/http/strategy.py`
 - `backend/app/domain/models/types.py`
 - `backend/app/domain/rules/blackjack_rules.py`
 - `backend/app/domain/engine/state_machine.py`
 - `backend/app/domain/engine/validators.py`
+- `backend/app/domain/strategy/gt_blackjack.py`
 - `backend/app/services/table_service.py`
 - `backend/app/services/round_service.py`
 - `backend/app/infra/redis/{client,keys,repo,stream,locks}.py`
 
 Frontend:
-- `frontend/src/pages/{Nickname,Lobby,Table}.jsx`
+- `frontend/src/pages/{Nickname,Lobby,Table}.tsx`
 - `frontend/src/components/...`
-- `frontend/src/ws/{client,protocol}.js`
-- `frontend/src/state/useGameStore.js`
-- `frontend/src/animation/eventAnimator.js`
+- `frontend/src/ws/{client,protocol}.ts`
+- `frontend/src/state/useGameStore.ts`
+- `frontend/src/animation/eventAnimator.ts`
